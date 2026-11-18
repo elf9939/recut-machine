@@ -147,7 +147,7 @@ Dakota
 {BRAND} · {FROM}
 
 P.S. Not interested? Just reply "no" and I won't reach out again.''')
-    return d['subject'], d['body']
+    return (d.get('subject') or '').strip() or '3 clips from your recent streams', d['body']   # never a blank subject
 
 
 def cheat_sheet(p):
