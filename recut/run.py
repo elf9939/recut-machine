@@ -84,7 +84,7 @@ def render(src, words, hook, out):
           '[b]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=10:2,scale=1080:1920,eq=brightness=-0.22:saturation=1.2,setsar=1,fps=30[bg];'
           f"[bg][v]overlay=0:470:shortest=1,ass='{ass}'")
     subprocess.run(['nice', '-n', '10', FFMPEG, '-y', '-loglevel', 'error', '-ss', f'{t0:.2f}', '-i', src, '-t', f'{end - t0:.2f}', '-filter_complex', vf, '-r', '30',
-                    '-c:v', 'libx264', '-preset', 'medium', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11',
+                    '-c:v', 'libx264', '-preset', 'medium', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-ar', '44100', '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11',   # 44.1 kHz: loudnorm outputs 96 kHz, which iPhones won't play
                     '-movflags', '+faststart', out], check=True)
     os.remove(ass)
 
@@ -173,7 +173,7 @@ def main():
         work = os.path.join(WORK, p['slug']); os.makedirs(work, exist_ok=True)
         try:
             made = make_clips(p, work)
-            if not made: print('  no good clips — skipped'); continue
+            if len(made) < 2: print(f'  only {len(made)} good clip(s) — skipped (every email needs at least 2)'); continue
             urls = [upload(m['file'], f'recut_{p["slug"]}_{k + 1}.mp4') for k, m in enumerate(made)]
             pid = f'{p["slug"]}-{secrets.token_hex(4)}'; link = f'https://recut-previews.vercel.app/c/{pid}'
             subj, body = email_for(p['name'], [m['moment'] for m in made])
