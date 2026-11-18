@@ -65,6 +65,8 @@ def find(want, seen, already):
             try: c = kick(f'/api/v2/channels/{ch}')
             except Exception: continue
             u = c.get('user') or {}; mails = [m for m in EMAIL.findall(u.get('bio') or '') if 'example.' not in m.lower()]
+            who = ' '.join([ch, u.get('username') or '', u.get('bio') or '']).lower()
+            if re.search(r'clip|highlight|moments|best ?of|compilation|fan ?page|reupload|re-upload|daily ', who): continue   # clip/fan accounts aren't clients
             followers = int(c.get('followers_count') or c.get('followersCount') or 0)
             if not mails or followers < 10_000: continue
             out.append({'slug': ch, 'name': u.get('username') or ch, 'followers': followers, 'email': mails[0].rstrip('.'), 'category': cat,
