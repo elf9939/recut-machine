@@ -7,7 +7,7 @@ find English Kick streamers with a business email -> AI judges their top clips -
 
 Public repo: this file and its logs never print anyone's email address. Nothing is ever sent from here.
 """
-import argparse, json, os, re, secrets, subprocess, sys, time, urllib.request
+import urllib.error, argparse, json, os, re, secrets, subprocess, sys, time, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
@@ -34,7 +34,14 @@ def hub(path, body=None):
 
 
 def kick(path):
-    return json.load(urllib.request.urlopen(urllib.request.Request('https://kick.com' + path, headers={'User-Agent': UA}), timeout=30))
+    """Kick API with backoff: Kick rate-limits cloud IPs (429) — wait and retry instead of losing every creator (Nov 19: 0 emails)."""
+    for k in range(6):
+        try:
+            time.sleep(1.5)                       # gentle pace between calls
+            return json.load(urllib.request.urlopen(urllib.request.Request('https://kick.com' + path, headers={'User-Agent': UA}), timeout=30))
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or k == 5: raise
+            w = int(e.headers.get('Retry-After') or 0) or 15 * (k + 1); print(f'  Kick busy (429) — waiting {w}s', flush=True); time.sleep(min(w, 90))
 
 
 def whisper(path):
