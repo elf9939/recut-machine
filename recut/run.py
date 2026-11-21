@@ -147,15 +147,15 @@ def make_clips(p, work, n=3):
     if p.get('platform') == 'Twitch':
         import datetime
         get = twitch(); since = (datetime.datetime.utcnow() - datetime.timedelta(days=30)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        for c in get(f'clips?broadcaster_id={p["tid"]}&first=40&started_at={since}')['data']:
+        for c in get(f'clips?broadcaster_id={p["tid"]}&first=12&started_at={since}')['data']:
             if c.get('duration', 0) <= 90: clips.append({'url': c['url'], 'title': c.get('title', '')})
     for span in (('week', 'month') if p.get('platform') != 'Twitch' else ()):
         try: d = kick(f'/api/v2/channels/{p["slug"]}/clips?sort=view&time={span}')
         except Exception: continue
         clips += [{'url': c['clip_url'], 'title': c.get('title', '')} for c in d.get('clips', []) if (c.get('duration') or 0) <= 90 and c['clip_url'] not in [x['url'] for x in clips]]
-        if len(clips) >= 20: break
+        if len(clips) >= 12: break
     pool = []
-    for i, c in enumerate(clips[:20], 1):
+    for i, c in enumerate(clips[:12], 1):   # 12 not 20: cost (top-viewed clips win anyway)
         src = os.path.join(work, f'src{i}.mp4')
         try:
             r = subprocess.run(YTDLP + ['-q', '-f', 'best[height<=1080]/best', '-o', src, '--hls-prefer-native', '--add-header', f'User-Agent:{UA}', c['url']], timeout=240)
