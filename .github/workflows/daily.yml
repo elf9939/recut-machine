@@ -25,6 +25,8 @@ jobs:
         env:
           PH_AUTOMATION_KEY: ${{ secrets.PH_AUTOMATION_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
         run: python recut/run.py --want "${{ inputs.want || '15' }}"
       - name: Remember who we already looked at
         run: |

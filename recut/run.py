@@ -54,6 +54,50 @@ def whisper(path):
 
 
 # ---------------- 1. find creators ----------------
+def twitch():
+    """Official Twitch API (owner's own app keys: env TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET)."""
+    import urllib.parse
+    cid, sec = os.environ.get('TWITCH_CLIENT_ID'), os.environ.get('TWITCH_CLIENT_SECRET')
+    if not (cid and sec):
+        f = os.path.expanduser('~/.twitch_keys')
+        if not os.path.exists(f): return None
+        cid, sec = (open(f).read().split() + ['', ''])[:2]
+    tok = json.load(urllib.request.urlopen(urllib.request.Request('https://id.twitch.tv/oauth2/token', data=urllib.parse.urlencode({'client_id': cid, 'client_secret': sec, 'grant_type': 'client_credentials'}).encode()), timeout=30))['access_token']
+    H = {'Client-Id': cid, 'Authorization': 'Bearer ' + tok}
+    return lambda path: json.load(urllib.request.urlopen(urllib.request.Request('https://api.twitch.tv/helix/' + path, headers=H), timeout=30))
+
+
+SKIP = re.compile(r'clip|highlight|moments|best ?of|compilation|fan ?page|reupload|re-upload|daily |casino|slots|gambl|betting|poker|onlyfans|18\+|nsfw|bikini|politic', re.I)
+
+
+def find_twitch(want, seen, already):
+    """Live English Twitch streamers with a real audience (25-3000 viewers) and a business email in their bio."""
+    get = twitch(); out = []
+    if not get: print('  (no Twitch keys — Kick only)', flush=True); return out
+    cur = None
+    for _ in range(25):
+        if len(out) >= want: break
+        d = get('streams?language=en&first=100' + (f'&after={cur}' if cur else '')); cur = (d.get('pagination') or {}).get('cursor')
+        live = [x for x in d['data'] if 25 <= x['viewer_count'] <= 3000 and ('tw:' + x['user_login']) not in seen and x['user_login'] not in already
+                and not SKIP.search(x.get('game_name', '') + ' ' + x.get('title', ''))]
+        for i in range(0, len(live), 100):
+            ids = '&'.join('id=' + x['user_id'] for x in live[i:i + 100])
+            if not ids: continue
+            users = {u['id']: u for u in get('users?' + ids)['data']}
+            for x in live[i:i + 100]:
+                seen.add('tw:' + x['user_login']); u = users.get(x['user_id']) or {}
+                bio = u.get('description') or ''
+                if SKIP.search(x['user_login'] + ' ' + bio): continue
+                mails = [m for m in EMAIL.findall(bio) if 'example.' not in m.lower()]
+                if not mails: continue
+                out.append({'slug': x['user_login'], 'name': x['user_name'], 'followers': 0, 'viewers': x['viewer_count'], 'email': mails[0].rstrip('.'),
+                            'category': x.get('game_name', ''), 'bio': bio[:600], 'socials': {}, 'platform': 'Twitch', 'tid': x['user_id']})
+                print(f'  ✓ {x["user_name"]} — Twitch, {x["viewer_count"]} live viewers, {x.get("game_name", "")}', flush=True)
+                if len(out) >= want: break
+        if not cur: break
+    return out
+
+
 def find(want, seen, already):
     out = []
     for page in range(1, 40):
@@ -100,7 +144,12 @@ def render(src, words, hook, out):
 
 def make_clips(p, work, n=3):
     clips = []
-    for span in ('week', 'month'):
+    if p.get('platform') == 'Twitch':
+        import datetime
+        get = twitch(); since = (datetime.datetime.utcnow() - datetime.timedelta(days=30)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        for c in get(f'clips?broadcaster_id={p["tid"]}&first=40&started_at={since}')['data']:
+            if c.get('duration', 0) <= 90: clips.append({'url': c['url'], 'title': c.get('title', '')})
+    for span in (('week', 'month') if p.get('platform') != 'Twitch' else ()):
         try: d = kick(f'/api/v2/channels/{p["slug"]}/clips?sort=view&time={span}')
         except Exception: continue
         clips += [{'url': c['clip_url'], 'title': c.get('title', '')} for c in d.get('clips', []) if (c.get('duration') or 0) <= 90 and c['clip_url'] not in [x['url'] for x in clips]]
@@ -159,7 +208,7 @@ P.S. Not interested? Just reply "no" and I won't reach out again.''')
 
 def cheat_sheet(p):
     try:
-        facts = {'platform': 'Kick', 'followers': p['followers'], 'category': p['category'], 'bio': p['bio'], 'socials': p['socials']}
+        facts = {'platform': p.get('platform', 'Kick'), 'followers': p['followers'] or None, 'live_viewers': p.get('viewers'), 'category': p['category'], 'bio': p['bio'], 'socials': p['socials']}
         r = ask_json(f"""Write a short pre-call cheat sheet about the streamer "{p['name']}" for Dakota, who runs a clipping agency.
 Use ONLY these public facts; if something isn't in them, leave it out: {json.dumps(facts)}
 Return JSON {{"who": "2 sentences", "size": "one line", "talking_points": ["3 specific things to mention or ask"], "clip_angle": "one sentence"}}""")
@@ -174,11 +223,14 @@ def main():
     already = {i['id'] for i in hub('/api/agents?outreach').get('items', [])}
     print('Finding creators…', flush=True)
     found = find(a.want + 5, seen, already)            # a few spare: some won't have good clips
+    if len(found) < a.want * 2:                          # Kick's live pool is small: top up from Twitch (most creators don't have 2+ great clips)
+        found += find_twitch(a.want * 2 - len(found), seen, already | {f['slug'] for f in found})
+    print(f'{len(found)} creators to try', flush=True)
     os.makedirs(os.path.dirname(SEEN), exist_ok=True); open(SEEN, 'w').write('\n'.join(sorted(seen)))
     done, t_start = 0, time.time()
     for p in found:
         if done >= a.want or time.time() - t_start > 4.5 * 3600: break    # stay inside GitHub's 6-hour job limit
-        print(f'\n{p["name"]} ({p["followers"]:,} followers)', flush=True)
+        print(f'\n{p["name"]} ({p.get("platform", "Kick")}, ' + (f'{p["followers"]:,} followers)' if p['followers'] else f'{p.get("viewers")} live viewers)'), flush=True)
         work = os.path.join(WORK, p['slug']); os.makedirs(work, exist_ok=True)
         try:
             made = make_clips(p, work)
@@ -186,7 +238,7 @@ def main():
             urls = [upload(m['file'], f'recut_{p["slug"]}_{k + 1}.mp4') for k, m in enumerate(made)]
             pid = f'{p["slug"]}-{secrets.token_hex(4)}'; link = f'https://recut-previews.vercel.app/c/{pid}'
             subj, body = email_for(p['name'], [m['moment'] for m in made])
-            hub('/api/agents?outreach', {'action': 'add', 'item': {'id': p['slug'], 'pid': pid, 'name': p['name'], 'platform': 'Kick', 'followers': p['followers'],
+            hub('/api/agents?outreach', {'action': 'add', 'item': {'id': p['slug'], 'pid': pid, 'name': p['name'], 'platform': p.get('platform', 'Kick'), 'followers': p['followers'],
                  'contact': p['email'], 'page': link, 'clips': urls, 'hooks': [m['hook'] for m in made], 'subject': subj,
                  'body': body.replace('{LINK}', link), 'cheat': cheat_sheet(p)}})
             done += 1; print('  → added to the Outreach tab', flush=True)
