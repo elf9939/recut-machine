@@ -90,9 +90,11 @@ def find_twitch(want, seen, already):
                 if SKIP.search(x['user_login'] + ' ' + bio): continue
                 mails = [m for m in EMAIL.findall(bio) if 'example.' not in m.lower()]
                 if not mails: continue
-                out.append({'slug': x['user_login'], 'name': x['user_name'], 'followers': 0, 'viewers': x['viewer_count'], 'email': mails[0].rstrip('.'),
+                try: fol = int(get('channels/followers?broadcaster_id=' + x['user_id']).get('total') or 0)
+                except Exception: fol = 0
+                out.append({'slug': x['user_login'], 'name': x['user_name'], 'followers': fol, 'viewers': x['viewer_count'], 'email': mails[0].rstrip('.'),
                             'category': x.get('game_name', ''), 'bio': bio[:600], 'socials': {}, 'platform': 'Twitch', 'tid': x['user_id']})
-                print(f'  ✓ {x["user_name"]} — Twitch, {x["viewer_count"]} live viewers, {x.get("game_name", "")}', flush=True)
+                print(f'  ✓ {x["user_name"]} — Twitch, {fol:,} followers, {x["viewer_count"]} live viewers, {x.get("game_name", "")}', flush=True)
                 if len(out) >= want: break
         if not cur: break
     return out
